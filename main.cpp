@@ -1,6 +1,7 @@
 #include <opencv2/opencv.hpp>
+#include "thinning.hpp"
 
-void thinningIteration(cv::Mat& img, int iter)
+void thinningIteration(cv::Mat& img, int iter, int n)
 {
     cv::Mat marker = cv::Mat::zeros(img.size(), CV_8UC1);
 
@@ -32,7 +33,7 @@ void thinningIteration(cv::Mat& img, int iter)
     img &= ~marker;
 }
 
-void thinning(const cv::Mat& src, cv::Mat& dst)
+void thinning(const cv::Mat& src, cv::Mat& dst, cv::Mat& cost)
 {
     dst = src.clone();
     dst /= 255;         // convert to binary image
@@ -40,15 +41,47 @@ void thinning(const cv::Mat& src, cv::Mat& dst)
     cv::Mat prev = cv::Mat::zeros(dst.size(), CV_8UC1);
     cv::Mat diff;
 
+    cv::Mat tempCost = cv::Mat::zeros(dst.size(), CV_32FC1);
+
+    int iter = 0;
+
     do {
-        thinningIteration(dst, 0);
-        thinningIteration(dst, 1);
+        iter++;
+        thinningIteration(dst, 0, iter);
+        thinningIteration(dst, 1, iter);
         cv::absdiff(dst, prev, diff);
+        for (int i = 0; i < dst.rows; i++)
+        {
+            for (int j = 0; j < dst.cols; j++)
+            {
+                tempCost.at<float>(i, j) += diff.at<uchar>(i, j) * iter;
+            }
+        }
         dst.copyTo(prev);
     } 
     while (cv::countNonZero(diff) > 0);
+    for (int i = 0; i < dst.rows; i++)
+    {
+        for (int j = 0; j < dst.cols; j++)
+        {
+            tempCost.at<float>(i, j) += dst.at<uchar>(i, j) * iter;
+        }
+    }
 
     dst *= 255;
+    float max = 0;
+    for (int i = 0; i < dst.rows; i++)
+    {
+        for (int j = 0; j < dst.cols; j++)
+        {
+            if (tempCost.at<float>(i, j) > max)
+            {
+                max = tempCost.at<float>(i, j);
+            }
+        }
+    }
+    tempCost = tempCost / max * 1;
+    cost = tempCost;
 }
 constexpr int mapWidth = 21;
 constexpr int mapHeight = 16;
@@ -58,17 +91,34 @@ int main()
         #include "MapAIUS3011"
     };
     cv::Mat src(mapHeight, mapWidth, CV_8UC1, data);
-    src *= 255;
+    /*src *= 255;
     src = 255 - src; 
     cv::resize(src, src, cv::Size(640, 480), 0, 0, cv::INTER_NEAREST);
     cv::Mat bw;
     bw = src.clone();  
-    thinning(bw, bw);
+    cv::Mat cost;
+    thinning(bw, bw, cost);
 
     bw = (bw + src) / 2;
 
     cv::imshow("src", src);
     cv::imshow("dst", bw);
+    cv::imshow("cost", cost);*/
+
+    src = 1-src;
+    cv::resize(src, src, cv::Size(640, 480), 0, 0, cv::INTER_NEAREST);
+    cv::Mat bw;
+    cv::Mat cost;
+    MapThinner2D thinner;
+    thinner.thinning(src, cost, bw);
+
+    src = src * 255;
+    bw = (bw + src) / 2;
+
+    cv::imshow("src", src);
+    cv::imshow("dst", bw);
+    cv::imshow("cost", cost);
+
     cv::waitKey(0);
 
     return 0;
